@@ -1,0 +1,75 @@
+{
+  "name": "dsh-copyback",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness plugin: local clipboard history — recall, search, pin and re-copy text you copied earlier. Runs a local-only recorder daemon; browser/password-manager secret markers are skipped; nothing leaves the machine.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md",
+    "CHANGES.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "clipboard",
+    "clipboard-history",
+    "copyback",
+    "copy-back",
+    "recall"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "redkiller79",
+    "url": "https://github.com/redkiller79"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/redkiller79/dsh-copyback.git"
+  },
+  "homepage": "https://github.com/redkiller79/dsh-copyback#readme",
+  "bugs": {
+    "url": "https://github.com/redkiller79/dsh-copyback/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1"
+  },
+  "dependencies": {},
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dsh": ">=0.2.1-rc.1 <0.3.0",
+      "profiles": [
+        "web",
+        "desktop"
+      ],
+      "platforms": [
+        "win32",
+        "darwin",
+        "linux"
+      ]
+    }
+  }
+}

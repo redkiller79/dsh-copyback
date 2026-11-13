@@ -1,0 +1,6 @@
+# dsh-copyback bundle patch
+# One host plugin entry. Tools are registered in-process via ctx.tools.
+- insert:
+    - id: dsh-copyback
+      name: 'dsh-copyback'
+      inject: [tools]

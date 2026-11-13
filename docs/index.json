@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "title": {
+    "en": "CopyBack plugins",
+    "zh": "CopyBack 插件"
+  },
+  "description": {
+    "en": "Official index of CopyBack plugins for DeepSeek Harness. Install without npm: sources are pinned git commits on GitHub.",
+    "zh": "CopyBack 系列插件的官方索引源，无需 npm：所有版本固定在 GitHub 上的发布 commit，来源可核。"
+  },
+  "plugins": [
+    {
+      "name": "dsh-copyback",
+      "title": {
+        "en": "CopyBack - Clipboard History",
+        "zh": "复制找回 · 剪贴板历史"
+      },
+      "description": {
+        "en": "Recall, search, pin and re-copy text you copied earlier on this machine. Local-only recorder (127.0.0.1), secret markers from browsers/password managers are skipped. Requires Python 3.",
+        "zh": "找回并重新粘贴本机复制过的文字：搜索、按日筛选、置顶收藏。仅本机记录，密码等敏感内容自动跳过。需要 Python 3。"
+      },
+      "icon": "icons/icon.png",
+      "author": "redkiller79; upstream scripts by ELLA (MIT)",
+      "homepage": "https://github.com/redkiller79/dsh-copyback#readme",
+      "repository": {
+        "url": "https://github.com/redkiller79/dsh-copyback"
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794589020,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/redkiller79/dsh-copyback",
+            "commit": "09f3f427c1dfafddd2eed81ad7bd206e4127ee81"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.1 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}

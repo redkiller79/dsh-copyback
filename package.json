@@ -1,6 +1,6 @@
 {
   "name": "dsh-copyback",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DeepSeek Harness plugin: local clipboard history — recall, search, pin and re-copy text you copied earlier. Runs a local-only recorder daemon; browser/password-manager secret markers are skipped; nothing leaves the machine.",
   "type": "module",
   "main": "lib/index.js",

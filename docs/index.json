@@ -27,6 +27,18 @@
       },
       "versions": [
         {
+          "version": "1.0.2",
+          "publishTimestamp": 1794620159,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/redkiller79/dsh-copyback",
+            "commit": "107d56856141558222650685a9b4bbac686be646"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.1 <0.3.0"
+          }
+        },
+        {
           "version": "1.0.1",
           "publishTimestamp": 1794619654,
           "source": {

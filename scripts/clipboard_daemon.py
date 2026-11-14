@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""clipboard-history: 本地剪贴板记录 + 工作台 HTTP API（v1.3）。
+"""clipboard_daemon: 本地剪贴板记录守护进程 + 无 GUI HTTP API。
 
 设计约束（改代码前先读）：
-1. 纯本地：只监听 127.0.0.1，不联网、不上传、无第三方依赖。
-2. 默认暂停：进程启动后 recording=False，必须由用户在工作台显式点「开始记录」。
+1. 纯本地：只监听 127.0.0.1，不联网、不上传、无第三方依赖、无界面。
+2. 默认暂停：进程启动后 recording=False，必须由用户显式开启。
 3. 敏感格式跳过：密码管理器 / 隐身窗口标记的剪贴板一律不记录。
 4. 覆盖剪贴板只发生在用户点「复制回剪贴板」时，且写回后抑制自身产生的重复条目。
 5. 原子落盘：先写 .tmp 再 os.replace；损坏文件自动备份为 .corrupt.json。
-6. v1.1 起页面为**服务端渲染 + 表单提交**，不依赖 JavaScript；JS 只做遮罩开关。
-   原因：预览面板可能不执行脚本或使用非同源容器，纯前端 fetch 会静默失败。
-7. v1.2 起「安装」与「运行」解耦：`ensure` 幂等自启（不重复起进程）、`install-autostart`
-   写登录自启、`clipboard_strip.py` 提供常驻浮动工具条。用户不必手敲任何命令。
-8. 记录状态持久化到 settings.json：只有用户显式开过一次，重启后才会恢复记录；
+6. 记录状态持久化到 settings.json：只有用户显式开过一次，重启后才会恢复记录；
    从未开启过则始终保持暂停（默认不采集这条红线不变）。
-9. v1.3 起界面有两套实现：tkinter 条 / 浏览器 app 无边框窗。原因：WorkBuddy 自带的
-   Python 是裁剪版（无 Lib/tkinter、无 _tkinter.pyd、无 tcl 目录），不能再假设 tkinter 存在。
-   本文件必须保持零 GUI 依赖；热键由守护进程独占注册，界面侧只做被动响应。
+
+上游与移植说明见包根 NOTICE.md / CHANGES.md（MIT，Copyright (c) 2026 ELLA）。
 """
 
 from __future__ import annotations
@@ -30,7 +25,6 @@ import json
 import os
 import re
 import secrets
-import shutil
 import subprocess
 import sys
 import threading
@@ -141,11 +135,7 @@ def data_dir() -> Path:
 
 # ---------------------------------------------------------------- 设置与进程管理
 # 只持久化「用户显式做过的选择」，不记录任何内容。缺省状态下 recording=False。
-DEFAULT_SETTINGS = {"recording": False, "hotkey": "win+alt+v",
-                    "ui_pos": None, "ui_w": None, "ui_folded": False,
-                    "strip_on_start": True,
-                    "ui_python": None, "hotkey_ok": False, "ui_mode": None,
-                    "user_copy_only": True}
+DEFAULT_SETTINGS = {"recording": False, "user_copy_only": True}
 
 
 def settings_path() -> Path:
@@ -274,7 +264,7 @@ def spawn_detached(argv: list[str]) -> None:
 
 
 def ensure_running(port: int = DEFAULT_PORT, timeout: float = 20.0,
-                   script: Path | None = None, follow_workbuddy: bool = False) -> dict:
+                   script: Path | None = None) -> dict:
     """幂等：已在跑就复用（含降级端口上的实例），没跑就后台拉起。"""
     hi = port + PORT_FALLBACK
 
@@ -289,8 +279,6 @@ def ensure_running(port: int = DEFAULT_PORT, timeout: float = 20.0,
             return found(p, False)
     script = script or Path(__file__).resolve()
     argv = [str(script), "serve", "--port", str(port)]   # serve 内部自行降级
-    if follow_workbuddy:
-        argv.append("--follow-workbuddy")
     spawn_escaped(argv)
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -321,289 +309,6 @@ def stop_running(port: int | None = None) -> dict:
     return {"ok": False, "stopped": False, "error": "停止超时，可能仍有请求占用"}
 
 
-# ---------------------------------------------------------------- 生命周期：跟随 WorkBuddy
-# 明确不上系统开机自启。进程只在 WorkBuddy 运行期间存在：
-# SessionStart 钩子拉起 → 守护线程每 30s 探一次 WorkBuddy 进程 → 连续消失 90s 自动退出。
-WB_IMAGE = "WorkBuddy.exe"
-
-
-def _run_quiet(argv: list[str], timeout: float = 8) -> str:
-    """跑系统命令并安全解码：中文 Windows 上 tasklist 输出是 GBK，UTF-8 模式会炸。"""
-    try:
-        out = subprocess.run(argv, capture_output=True, timeout=timeout,
-                             creationflags=0x08000000 if os.name == "nt" else 0)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    data = out.stdout or b""
-    for enc in ("utf-8", "mbcs", "gbk"):
-        try:
-            return data.decode(enc)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return data.decode("utf-8", "ignore")
-
-
-def _workbuddy_pids() -> set[int]:
-    """WorkBuddy.exe 的全部进程 pid（CSV 引号必须剥掉再转 int）。"""
-    out = _run_quiet(["tasklist", "/FI", f"IMAGENAME eq {WB_IMAGE}", "/FO", "CSV", "/NH"])
-    pids: set[int] = set()
-    for line in out.splitlines():
-        parts = [p.strip().strip('"') for p in line.split(",")]
-        if len(parts) >= 2 and parts[1].isdigit():
-            pids.add(int(parts[1]))
-    return pids
-
-
-def workbuddy_alive() -> bool:
-    """WorkBuddy 是否「在用」：存在可见的主窗口才算活着。
-
-    WorkBuddy 是 Electron 应用，主窗口关掉后后台/GPU 进程仍会存活一段
-    时间——只按进程名判断会让守护进程和工具条永远不退出（v1.6 实测）。
-    按「可见窗口」判断贴合用户直觉：关窗=退出；判断不了时返回 True
-    （宁可留着，不误杀）。
-    """
-    if sys.platform != "win32":
-        return True
-    try:
-        import ctypes.wintypes as wt
-        pids = _workbuddy_pids()
-        if not pids:
-            out = _run_quiet(["tasklist", "/FI", f"IMAGENAME eq {WB_IMAGE}", "/NH"])
-            if not out:
-                return True          # tasklist 不可用，宁可留着
-            return WB_IMAGE.lower() in out.lower() and _has_visible_window(pids)
-        return _has_visible_window(pids)
-    except (OSError, AttributeError, ValueError):
-        return True
-
-
-def _has_visible_window(pids: set[int]) -> bool:
-    if not pids:
-        return False
-    import ctypes.wintypes as wt
-    user32 = ctypes.WinDLL("user32")
-    found = [False]
-
-    def _cb(hwnd, _lparam) -> bool:
-        pid = wt.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value in pids and user32.IsWindowVisible(hwnd):
-            buf = ctypes.create_unicode_buffer(64)
-            user32.GetWindowTextW(hwnd, buf, 64)
-            if buf.value.strip():      # 忽略无标题的隐藏辅助窗口
-                found[0] = True
-                return False
-        return True
-
-    user32.EnumWindows(ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(_cb), 0)
-    return found[0]
-
-
-def workbuddy_rect(min_size: int = 200) -> tuple[int, int, int, int] | None:
-    """取 WorkBuddy 主窗口的屏幕矩形 (left, top, right, bottom)。
-
-    只用于决定工具条默认贴哪边，不读取窗口内容。取不到返回 None，
-    调用方必须能退回「贴屏幕右缘」。
-    """
-    if sys.platform != "win32":
-        return None
-    try:
-        import ctypes.wintypes as wt
-        user32 = ctypes.windll.user32
-        # tasklist /FO CSV 的行是 "WorkBuddy.exe","14152",... —— 引号必须先剥掉再转 int，
-        # 否则每一条都 ValueError，整个 pid 集合为空，窗口永远定位不到。
-        pids = set()
-        for raw in _run_quiet(["tasklist", "/FI", f"IMAGENAME eq {WB_IMAGE}",
-                               "/FO", "CSV", "/NH"]).split(","):
-            token = raw.strip().strip('"')
-            if token.isdigit():
-                pids.add(int(token))
-        best: tuple[int, int, int, int] | None = None
-
-        def _cb(hwnd, _lp):
-            nonlocal best
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            pid = wt.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value not in pids:
-                return True
-            r = wt.RECT()
-            if not user32.GetWindowRect(hwnd, ctypes.byref(r)):
-                return True
-            w, h = r.right - r.left, r.bottom - r.top
-            if w < min_size or h < min_size:
-                return True
-            if best is None or w * h > (best[2] - best[0]) * (best[3] - best[1]):
-                best = (r.left, r.top, r.right, r.bottom)
-            return True
-
-        user32.EnumWindows(ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)(_cb), 0)
-        return best
-    except (OSError, AttributeError, ValueError):
-        return None
-
-
-def watch_workbuddy(rt: "Runtime", httpd, interval: int = 30, grace: int = 90) -> None:
-    misses = 0
-    while not rt.state["stop"].wait(interval):
-        if workbuddy_alive():
-            misses = 0
-            continue
-        misses += 1
-        if misses * interval >= grace:
-            # 退出原因写进 boot.log：WorkBuddy 主窗连续 90s 不可见（含最小化到
-            # 托盘的情况）。没有这条记录就无法区分「正常跟随退出」和「误判误杀」。
-            try:
-                with (data_dir() / "boot.log").open("a", encoding="utf-8") as fh:
-                    fh.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  "
-                             f"wb invisible {grace}s -> daemon exit\n")
-            except OSError:
-                pass
-            rt.state["stop"].set()
-            try:
-                httpd.shutdown()
-            except Exception:
-                pass
-            return
-
-
-def workbuddy_home() -> Path:
-    override = os.environ.get("CH_WB_HOME")
-    return Path(override) if override else (Path.home() / ".workbuddy")
-
-
-def hook_command() -> str:
-    exe = _windows_pyw() if os.name == "nt" else sys.executable
-    script = Path(__file__).resolve().with_name("hook_session.py")
-    fmt = (lambda s: s.replace("\\", "/")) if os.name == "nt" else (lambda s: s)
-    return f'"{fmt(exe)}" "{fmt(str(script))}"'
-
-
-def install_hook(with_strip: bool = True, home: Path | None = None) -> dict:
-    """把启动动作挂到 WorkBuddy 的 SessionStart 钩子：开 WorkBuddy 才启动，不写系统自启。"""
-    cfg_path = (home or workbuddy_home()) / "settings.json"
-    cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    data = {}
-    if cfg_path.exists():
-        try:
-            data = json.loads(cfg_path.read_text(encoding="utf-8")) or {}
-        except (OSError, ValueError):
-            return {"ok": False, "error": "settings.json 解析失败，已中止（未做任何修改）"}
-        if not isinstance(data, dict):
-            return {"ok": False, "error": "settings.json 结构异常，已中止"}
-        backup = cfg_path.with_name(f"settings.json.ch-backup-{int(time.time())}")
-        try:
-            backup.write_text(cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
-        except OSError:
-            pass
-    hooks = data.get("hooks")
-    if not isinstance(hooks, dict):
-        hooks = {}
-        data["hooks"] = hooks
-    entries = hooks.get("SessionStart")
-    if not isinstance(entries, list):
-        entries = []
-        hooks["SessionStart"] = entries
-    cmd = hook_command()
-    already = any(
-        cmd == h.get("command")
-        for entry in entries if isinstance(entry, dict)
-        for h in entry.get("hooks", []) if isinstance(h, dict)
-    )
-    if not already:
-        entries.append({"hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
-    tmp = cfg_path.with_name(cfg_path.name + ".tmp")
-    try:
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, cfg_path)
-    except OSError as exc:
-        return {"ok": False, "error": str(exc)}
-    save_settings(strip_on_start=bool(with_strip))
-    legacy = uninstall_autostart()
-    return {"ok": True, "installed": True, "already": already, "settings": str(cfg_path),
-            "command": cmd, "strip_on_start": bool(with_strip),
-            "legacy_autostart_removed": bool(legacy.get("removed"))}
-
-
-def uninstall_hook(home: Path | None = None) -> dict:
-    cfg_path = (home or workbuddy_home()) / "settings.json"
-    if not cfg_path.exists():
-        return {"ok": True, "removed": False, "message": "没有找到 settings.json"}
-    try:
-        data = json.loads(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, ValueError) as exc:
-        return {"ok": False, "error": str(exc)}
-    hooks = data.get("hooks") or {}
-    entries = hooks.get("SessionStart") or []
-    kept = [
-        e for e in entries
-        if not any("hook_session.py" in str(h.get("command", ""))
-                   for h in (e.get("hooks") or []) if isinstance(h, dict))
-    ]
-    removed = len(entries) - len(kept)
-    if removed:
-        hooks["SessionStart"] = kept
-        if not kept:
-            hooks.pop("SessionStart", None)
-        if not hooks:
-            data.pop("hooks", None)
-        cfg_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"ok": True, "removed": bool(removed), "settings": str(cfg_path)}
-
-
-def hook_installed(home: Path | None = None) -> bool:
-    cfg = (home or workbuddy_home()) / "settings.json"
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8") or "{}")
-    except (OSError, ValueError):
-        return False
-    return "hook_session.py" in json.dumps(data.get("hooks", {}), ensure_ascii=False)
-
-
-def _has_tkinter(exe: str) -> bool:
-    try:
-        out = subprocess.run([exe, "-c", "import tkinter"],
-                             capture_output=True, timeout=15,
-                             creationflags=0x08000000 if os.name == "nt" else 0)
-        return out.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def pick_ui_python() -> str:
-    """工具条需要 tkinter，但装技能的 Python 未必自带（实测本机 3.13.12 就没有）。
-
-    按候选顺序探活，结果缓存到 settings.json 的 ui_python，只探一次。
-    """
-    cached = load_settings().get("ui_python")
-    if cached and Path(cached).exists() and _has_tkinter(cached):
-        return cached
-    exe = Path(sys.executable)
-    candidates: list[Path] = []
-    for name in ("pythonw.exe", "python.exe"):
-        candidates.append(exe.with_name(name))
-        for found in ([shutil.which(name)] if os.name != "nt" else []):
-            if found:
-                candidates.append(Path(found))
-    if os.name == "nt":
-        for base in ("C:/Python313", "C:/Python312", "C:/Python311"):
-            candidates.append(Path(base) / "pythonw.exe")
-            candidates.append(Path(base) / "python.exe")
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = str(candidate).lower()
-        if key in seen or not candidate.exists():
-            continue
-        seen.add(key)
-        if "WindowsApps" in str(candidate):
-            continue
-        if _has_tkinter(str(candidate)):
-            save_settings(ui_python=str(candidate))
-            return str(candidate)
-    return ""
-
-
 def spawn_escaped(argv: list[str], exe: str | None = None) -> bool:
     """脱离进程树启动：DETACHED_PROCESS + BREAKAWAY_FROM_JOB + 无窗口。
 
@@ -626,270 +331,10 @@ def spawn_escaped(argv: list[str], exe: str | None = None) -> bool:
     return True
 
 
-def spawn_strip(script: Path | None = None) -> dict:
-    target = script or Path(__file__).resolve().with_name("clipboard_strip.py")
-    if strip_running():
-        return {"ok": True, "started": False, "reason": "already-running"}
-    ui_python = pick_ui_python()
-    if not ui_python:
-        return {"ok": False, "started": False,
-                "error": "找不到带 tkinter 的 Python，工具条不可用（可退回无边框浏览器窗）"}
-    spawn_escaped([str(target)], exe=ui_python)
-    return {"ok": True, "started": True, "python": ui_python}
-
-
-def ensure_ui(allow_browser: bool = True) -> dict:
-    """界面入口：优先 tkinter 条，缺 tkinter 就用浏览器无边框窗，两者都不行才退回网页。"""
-    res = spawn_strip()
-    if res.get("ok"):
-        return {"ok": True, "mode": "strip", "detail": res}
-    if allow_browser:
-        alt = open_app_window()
-        if alt.get("ok"):
-            return {"ok": True, "mode": "browser", "detail": alt,
-                    "strip_error": res.get("error")}
-        return {"ok": False, "mode": "page",
-                "error": alt.get("error") or res.get("error")}
-    return {"ok": False, "mode": "page", "error": res.get("error")}
-
-
-def strip_running() -> bool:
-    return strip_pid_alive(read_strip_pid())
-
-
-def read_strip_pid() -> int:
-    try:
-        return int((data_dir() / "strip.pid").read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return 0
-
-
-def strip_pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        out = _run_quiet(["tasklist", "/FI", f"PID eq {pid}", "/NH"])
-        return str(pid) in out
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-# ---------------------------------------------------------------- 界面通道（不依赖 tkinter）
-# 事实：WorkBuddy 自带的 Python 是裁剪版（实测 3.13.14：没有 Lib/tkinter、没有 _tkinter.pyd、
-# 没有 tcl 目录，import tkinter 直接 ModuleNotFoundError）。但守护进程是纯标准库，
-# 记录、HTTP API、网页工作台全部不依赖 GUI。所以「常驻的条」必须有两条实现路径：
-#   A. 有 tkinter  → clipboard_strip.py（置顶小窗，可折叠）
-#   B. 没有 tkinter → 浏览器 app 模式无边框窗（本文件 open_app_window）
-# 两条路径共用一份数据，都只走 127.0.0.1 的 HTTP API；热键统一由守护进程注册，
-# 避免两个进程抢同一个 RegisterHotKey（后注册者会拿到 1409 失败）。
-
-BROWSER_CANDIDATES = (
-    ("edge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-    ("edge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-    ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-    ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-)
-BROWSER_POSIX = (
-    ("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-    ("edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-    ("chrome", "/usr/bin/google-chrome"),
-    ("chromium", "/usr/bin/chromium"),
-)
-BROWSER_PATH_NAMES = ("google-chrome", "google-chrome-stable", "chromium",
-                      "chromium-browser", "microsoft-edge")
-
-MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN = 0x0001, 0x0002, 0x0004, 0x0008
-MOD_NOREPEAT = 0x4000
-WM_HOTKEY = 0x0312
-HOTKEY_ID = 0xB10D
-BROWSER_OPEN_GUARD = 90.0   # 秒：避免每次刷新都弹一个新窗口
-
-
-def find_browser() -> tuple[str, str] | None:
-    """找 Edge / Chrome，返回 (kind, exe)；找不到返回 None。"""
-    for kind, path in (BROWSER_CANDIDATES if os.name == "nt" else BROWSER_POSIX):
-        if Path(path).exists():
-            return kind, path
-    for name in BROWSER_PATH_NAMES:
-        found = shutil.which(name)
-        if found:
-            return ("edge" if "edge" in name else "chrome"), found
-    return None
-
-
-def browser_app_argv(exe: str, url: str, profile: Path,
-                     width: int = 390, height: int = 640) -> list[str]:
-    """无边框、无标签栏、无地址栏的单窗口。
-
-    `--user-data-dir` 用独立目录：既不会串到用户已登录的浏览器会话，
-    也保证即使主浏览器已在运行，也会作为独立进程开出独立窗口。
-    """
-    return [exe, f"--app={url}", f"--window-size={width},{height}",
-            f"--user-data-dir={profile}", "--no-first-run",
-            "--no-default-browser-check", "--disable-features=Translate",
-            "--disable-component-update"]
-
-
-def open_app_window(url: str | None = None, width: int = 390, height: int = 640,
-                    dry_run: bool = False, force: bool = False) -> dict:
-    """没有 tkinter 时的界面：用一个浏览器 app 窗口冒充「条」。"""
-    found = find_browser()
-    if not found:
-        return {"ok": False, "error": "没找到 Edge / Chrome，无法开无边框窗口"}
-    kind, exe = found
-    url = url or (read_runtime() or {}).get("url")
-    if not url:
-        return {"ok": False, "error": "服务未运行，先 ensure"}
-    if not dry_run:
-        stamp = data_dir() / "browser-open.stamp"
-        try:
-            if not force and time.time() - float(stamp.read_text(encoding="utf-8")) < BROWSER_OPEN_GUARD:
-                return {"ok": True, "skipped": "already-open", "kind": kind}
-        except (OSError, ValueError):
-            pass
-        try:
-            stamp.write_text(str(time.time()), encoding="utf-8")
-        except OSError:
-            pass
-    profile = data_dir() / "browser-profile"
-    argv = browser_app_argv(exe, url, profile, width, height)
-    # CH_NO_LAUNCH=1：只算命令不真启动，供自检使用（否则测试会弹出真实窗口）。
-    if dry_run or os.environ.get("CH_NO_LAUNCH") == "1":
-        return {"ok": True, "dry_run": True, "kind": kind, "argv": argv}
-    spawn_escaped(argv[1:], exe=exe)
-    save_settings(ui_mode="browser")
-    return {"ok": True, "kind": kind, "browser": exe, "opened": True}
-
-
-def parse_hotkey(combo: str) -> tuple[int, int] | None:
-    """'win+alt+v' → (mods, vk)。必须在守护进程里解析，工具条不参与注册。"""
-    mods, vk = 0, None
-    for part in (combo or "").lower().split("+"):
-        part = part.strip()
-        if part == "win":
-            mods |= MOD_WIN
-        elif part == "alt":
-            mods |= MOD_ALT
-        elif part in ("ctrl", "control"):
-            mods |= MOD_CONTROL
-        elif part == "shift":
-            mods |= MOD_SHIFT
-        elif len(part) == 1 and part.isalnum():
-            vk = ord(part.upper())
-    if vk is None or not mods:
-        return None
-    return mods | MOD_NOREPEAT, vk
-
-
-def start_hotkey_listener(combo: str, on_trigger, event_id: int = HOTKEY_ID,
-                          on_result=None) -> dict:
-    """守护进程独占全局热键；触发时走 summon()。
-
-    注册失败（被别的软件占用 / 非 Windows）不算错误：界面退回「完整页面」，
-    状态里如实标记 hotkey_ok=False，不静默假装成功。
-    """
-    if sys.platform != "win32":
-        return {"ok": False, "error": "non-windows"}
-    parsed = parse_hotkey(combo)
-    if not parsed:
-        return {"ok": False, "error": "invalid-hotkey"}
-    mods, vk = parsed
-
-    def run() -> None:
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        registered = bool(user32.RegisterHotKey(None, event_id, mods, vk))
-        save_settings(hotkey_ok=registered)
-        if on_result is not None:
-            try:
-                on_result(registered)
-            except Exception:
-                pass
-        if not registered:
-            return
-        msg = wintypes.MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            if msg.message == WM_HOTKEY and msg.wParam == event_id:
-                try:
-                    on_trigger()
-                except Exception:
-                    pass
-
-    threading.Thread(target=run, daemon=True, name="hotkey").start()
-    return {"ok": True, "started": True, "hotkey": combo}
-
-
-def ui_python_available() -> str:
-    """只读缓存，不做探活：探活要起子进程，而 /api/state 会被工具条每 2.5 秒调用一次。"""
-    cached = load_settings().get("ui_python")
-    return cached if cached and Path(cached).exists() else ""
-
-
-def ui_mode(rt: "Runtime | None" = None, strip_up: bool | None = None) -> str:
-    """当前实际可用的界面：strip（tkinter 条）/ browser（无边框窗）/ page（只能用网页）。"""
-    if strip_up is None:
-        strip_up = strip_running()
-    if strip_up:
-        return "strip"
-    if rt is not None and rt.state.get("hotkey_ok"):
-        return "browser"
-    if load_settings().get("hotkey_ok") and find_browser():
-        return "browser"
-    return "page"
-
-
-def summon(rt: "Runtime | None" = None, dry_run: bool = False) -> dict:
-    """「唤出」：条活着就通知它切显隐；没有条就开无边框窗口。"""
-    if rt is not None and strip_running():
-        rt.state["summon"] = int(rt.state.get("summon") or 0) + 1
-        return {"ok": True, "mode": "strip", "summon": rt.state["summon"]}
-    # 用运行时对象自己的地址，别去读 runtime.json：非默认端口时按端口查会读不到。
-    url = rt.url if rt is not None else None
-    res = open_app_window(url=url, dry_run=dry_run)
-    return {"ok": bool(res.get("ok")), "mode": "browser", **res}
-
-
-# ---------------------------------------------------------------- 开机自启（仅用于清理历史遗留）
-def startup_dir() -> Path:
-    override = os.environ.get("CH_STARTUP_DIR")
-    if override:
-        p = Path(override)
-        p.mkdir(parents=True, exist_ok=True)
-        return p
-    if os.name == "nt":
-        appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "LaunchAgents"
-    return Path.home() / ".config" / "autostart"
-
-
-def autostart_entry_name() -> str:
-    return "clipboard-history.vbs" if os.name == "nt" else "clipboard-history.desktop"
-
-
-def autostart_file() -> Path:
-    return startup_dir() / autostart_entry_name()
-
-
 def _windows_pyw() -> str:
     exe = sys.executable
     pyw = Path(exe).with_name("pythonw.exe")
     return str(pyw if pyw.exists() else Path(exe))
-
-
-def uninstall_autostart() -> dict:
-    """只为清理历史遗留的开机自启项（本项目默认不写系统自启）。"""
-    path = autostart_file()
-    if path.exists():
-        try:
-            path.unlink()
-        except OSError as exc:
-            return {"ok": False, "error": str(exc), "entry": str(path)}
-        return {"ok": True, "removed": True, "entry": str(path)}
-    return {"ok": True, "removed": False, "entry": str(path), "message": "没有找到自启项"}
 
 
 class Store:
@@ -1225,10 +670,7 @@ class Runtime:
             "last_added": None,
             "last_skip": None,
             "last_error": None,
-            "summon": 0,
-            "hotkey_ok": False,
             "started_at": time.time(),
-            "keyhook_ok": False,   # v1.7.0 起不再装全局键盘钩子，恒为 False
         }
 
     @property
@@ -1506,7 +948,6 @@ def make_handler(rt: Runtime):
             if not self._api_ok(allow_query=True):
                 return
             if parsed.path == "/api/state":
-                strip_up = strip_running()
                 self._json(200, {
                     "ok": True, "version": VERSION,
                     "recording": rt.state["recording"],
@@ -1519,17 +960,7 @@ def make_handler(rt: Runtime):
                     "last_added": rt.state["last_added"],
                     "last_skip": rt.state["last_skip"],
                     "last_error": rt.state["last_error"],
-                    "keyhook_ok": rt.state["keyhook_ok"],
                     "user_copy_only": rt.state.get("user_copy_only", True),
-                    "autostart": autostart_file().exists(),
-                    "hook_installed": hook_installed(),
-                    "strip_running": strip_up,
-                    "hotkey": load_settings().get("hotkey"),
-                    "hotkey_ok": bool(rt.state.get("hotkey_ok")),
-                    "summon": int(rt.state.get("summon") or 0),
-                    "ui_mode": ui_mode(rt, strip_up),
-                    "ui_python": ui_python_available(),
-                    "browser": (find_browser() or ("", ""))[0],
                 })
             elif parsed.path == "/api/items":
                 try:
@@ -1618,8 +1049,6 @@ def make_handler(rt: Runtime):
                 if cur:
                     rt.state["ignored"].add(cur)
                 self._json(200, {"ok": True, "removed": removed})
-            elif path == "/api/summon":
-                self._json(200, summon(rt))
             elif path == "/api/shutdown":
                 self._json(200, {"ok": True, "message": "即将停止"})
                 rt.state["stop"].set()
@@ -1643,7 +1072,7 @@ class LocalServer(ThreadingHTTPServer):
 
 def serve(port: int = DEFAULT_PORT, store_path: Path | None = None,
           recording: bool | None = None, max_items: int = MAX_ITEMS,
-          resume: bool = True, follow_workbuddy: bool = False) -> Runtime | None:
+          resume: bool = True) -> Runtime | None:
     ensure_stdout()
     if http_health(port):
         existing = read_runtime(port) or {}
@@ -1691,18 +1120,9 @@ def serve(port: int = DEFAULT_PORT, store_path: Path | None = None,
         except OSError:
             pass
     rt.write_runtime_file()
-    # 热键由守护进程独占：有工具条就通知它切显隐，没有就开无边框窗口。
-    hk = start_hotkey_listener(load_settings().get("hotkey") or "win+alt+v",
-                               lambda: summon(rt),
-                               on_result=lambda ok: rt.state.__setitem__("hotkey_ok", ok))
-    rt.state["hotkey_ok"] = bool(hk.get("ok"))
-    if follow_workbuddy:
-        threading.Thread(target=watch_workbuddy, args=(rt, httpd), daemon=True,
-                         name="wb-watchdog").start()
     emit({"ok": True, "url": rt.url, "port": rt.port, "pid": os.getpid(),
           "recording": rt.state["recording"], "storage_path": str(store.path),
-          "platform": rt.clip.platform, "version": VERSION,
-          "follow_workbuddy": follow_workbuddy})
+          "platform": rt.clip.platform, "version": VERSION})
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -1724,8 +1144,6 @@ def main() -> int:
     s.add_argument("--paused", action="store_true", help="本次强制暂停（忽略上次状态）")
     s.add_argument("--max-items", type=int, default=MAX_ITEMS)
     s.add_argument("--store", type=Path, default=None)
-    s.add_argument("--follow-workbuddy", action="store_true",
-                   help="WorkBuddy 退出后自动停（供 SessionStart 钩子使用）")
 
     e = sub.add_parser("ensure", help="幂等自启：已在跑就复用，没跑就在后台拉起（推荐入口）")
     e.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -1733,19 +1151,12 @@ def main() -> int:
     sub.add_parser("stop", help="停止本地服务")
     sub.add_parser("status", help="打印运行状态与数据位置")
 
-    h = sub.add_parser("install-hook", help="挂到 WorkBuddy 会话启动钩子（不写系统开机自启）")
-    h.add_argument("--no-strip", action="store_true", help="只拉守护进程，不弹浮动工具条")
-    sub.add_parser("uninstall-hook", help="移除 WorkBuddy 会话启动钩子")
-    sub.add_parser("strip", help="启动常驻浮动工具条（需要 tkinter）")
-    sub.add_parser("open", help="打开无边框窗口（不需要 tkinter，用 Edge/Chrome app 模式）")
-    sub.add_parser("summon", help="等同于按一次热键：条在就切显隐，不在就开无边框窗口")
-
     args = ap.parse_args()
 
     if args.cmd == "serve":
         recording = True if args.recording else (False if args.paused else None)
         serve(args.port, args.store, recording, args.max_items,
-              resume=not args.paused, follow_workbuddy=args.follow_workbuddy)
+              resume=not args.paused)
         return 0
     if args.cmd == "ensure":
         res = ensure_running(args.port)
@@ -1755,38 +1166,16 @@ def main() -> int:
         res = stop_running()
         emit(res)
         return 0 if res.get("ok") else 1
-    if args.cmd == "install-hook":
-        res = install_hook(with_strip=not args.no_strip)
-        emit(res)
-        return 0 if res.get("ok") else 1
-    if args.cmd == "uninstall-hook":
-        res = uninstall_hook()
-        emit(res)
-        return 0 if res.get("ok") else 1
-    if args.cmd == "strip":
-        emit(ensure_ui())
-        return 0
-    if args.cmd == "open":
-        res = open_app_window(force=True)
-        emit(res)
-        return 0 if res.get("ok") else 1
-    if args.cmd == "summon":
-        rt = read_runtime() or {}
-        res = api_call("/api/summon", payload={})
-        emit({**res, "url": rt.get("url")})
-        return 0 if res.get("ok") else 1
 
     rt = read_runtime()
-    hook_on = hook_installed()
     if not rt:
         emit({"ok": False, "running": False,
               "storage_path": str(data_dir() / "items.json"),
-              "hook_installed": hook_on, "data_dir": str(data_dir())})
+              "data_dir": str(data_dir())})
         return 1
     emit({"ok": True, "running": http_health(), "url": rt.get("url"), "pid": rt.get("pid"),
           "port": rt.get("port"), "storage_path": rt.get("storage_path"),
-          "recording": _recording_state(), "hook_installed": hook_on,
-          "strip_running": strip_running(), "data_dir": str(data_dir())})
+          "recording": _recording_state(), "data_dir": str(data_dir())})
     return 0
 
 

@@ -39,9 +39,9 @@ DeepSeek Harness（DSH）插件：把「复制找回 · 剪贴板历史」技能
 
 ```sh
 # 从 GitHub 源码安装（纯 JS 无构建步骤，开箱即用；可锁定版本 tag）
-dsh plugin --profile web add github:redkiller79/dsh-copyback#v1.0.2
+dsh plugin --profile web add github:redkiller79/dsh-copyback#v1.0.3
 # 或安装 Release 附带的构建 tarball
-dsh plugin --profile web add "https://github.com/redkiller79/dsh-copyback/releases/download/v1.0.2/dsh-copyback-1.0.2.tgz"
+dsh plugin --profile web add "https://github.com/redkiller79/dsh-copyback/releases/download/v1.0.3/dsh-copyback-1.0.3.tgz"
 ```
 
 安装后重启 `dsh web`（或桌面端），插件以 `dsh-copyback` 入口挂载；可用 `dsh --profile web --dump-config` 确认已加载。
@@ -55,6 +55,7 @@ dsh plugin --profile web remove dsh-copyback
 ## 运行方式
 
 - 插件按需拉起本地守护进程（包内自带 `scripts/clipboard_daemon.py`），只监听 `127.0.0.1`，端口基线 **18765**（被占自动 18766～18775）。守护进程为无界面纯后端：记录、HTTP API 与敏感格式过滤，不含任何 GUI。
+- 启动自愈（v1.0.3）：守护进程首次拉起失败会自动重试一次（总上限 20 秒不变）；Python 缺失或被策略拦截时，错误信息会直接给出解释器、数据目录、端口范围与可用环境变量，而不是一句裸超时。
 - 首次调用任何工具时自动开启记录；之后沿用你上次的选择（用 `copyback_manage` 的 `start_recording` / `stop_recording` 切换，重启后保持）。
 - 记录上限 200 条，超出自动淘汰最旧的未置顶条目；置顶永久保留。单条正文最长 20000 字符。
 
@@ -94,7 +95,7 @@ DeepSeek Harness 的「发现」标签页读取的是**自定义插件索引**�
 
 1. **自营官方索引（无需 npm）**：https://redkiller79.github.io/dsh-copyback/index.json —— 本仓库 `docs/` 目录经 GitHub Pages 发布，版本来源固定在发布 commit，图标随索引同源托管；
 2. **awesome-dsh-plugin 收录申请**：已向社区目录 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin 提交 PR（[#15087](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15087)，`Add redkiller79/dsh-copyback (tools)`）；
-3. **GitHub 仓库**带 `dsh-plugin` topic，社区插件目录可自动发现；Release v1.0.2 附构建 tarball；
+3. **GitHub 仓库**带 `dsh-plugin` topic，社区插件目录可自动发现；Release v1.0.3 附构建 tarball；
 4. npm 包 `dsh-copyback` 为**可选**渠道（非必须；截至 2026-11-14 未发布）。
 
 ## 来源与许可

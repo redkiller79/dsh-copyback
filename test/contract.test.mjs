@@ -94,3 +94,29 @@ test('summarizeItems returns bounded previews with metadata', async () => {
   assert.equal(row.pinned, true)
   assert.ok(!row.text, 'full text is never returned in summaries')
 })
+
+test('v1.0.3 startup retry: two attempts, spawn errors surfaced, actionable diagnostics', async () => {
+  const { STARTUP_ATTEMPTS, startupDiagnostics, apply } = await import('../lib/index.js')
+  assert.equal(STARTUP_ATTEMPTS, 2)
+  const msg = startupDiagnostics({
+    portBase: 18765, dataDir: '/tmp/dsh', python: 'python',
+    runtimeExists: true, spawnError: 'spawn python ENOENT',
+  })
+  assert.match(msg, /after 2 attempts/)
+  assert.match(msg, /spawn python ENOENT/)
+  assert.match(msg, /18765-18775/)
+  assert.match(msg, /possibly stale/)
+  assert.match(msg, /DSH_COPYBACK_PYTHON/)
+  const clean = startupDiagnostics({
+    portBase: 18765, dataDir: '/tmp/dsh', python: 'python',
+    runtimeExists: false, spawnError: null,
+  })
+  assert.doesNotMatch(clean, /spawn error/)
+  const src = await readFile(path.join(ROOT, 'lib/index.js'), 'utf8')
+  assert.match(src, /child\.on\('error'/)
+  assert.match(src, /attempt <= STARTUP_ATTEMPTS/)
+  // three tools still register after the startup-layer change
+  const registered = []
+  apply({ tools: { register: (t) => registered.push(t) } })
+  assert.equal(registered.length, 3)
+})

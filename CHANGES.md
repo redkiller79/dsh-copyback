@@ -18,6 +18,16 @@
 - 全局热键（RegisterHotKey / Win+Alt+V）与 `summon` 通道：无界面即无唤出目标。
 - 登录自启（autostart）清理逻辑与 `install-hook` / `uninstall-hook` / `strip` / `open` / `summon` CLI 子命令。
 
+## 2026-11-14 启动自愈同步上游（v1.0.3）
+
+- 背景：上游 WorkBuddy 技能 `clipboard-history` v1.9.1 修复「更新 / 重启宿主后工具条不启动」。该问题的两处具体成因（`SessionStart` 单点、浏览器无边框窗只试首次）都在 **WorkBuddy 宿主层**；本插件自 v1.0.1 起已剥离会话钩子 / 工具条 / 浏览器窗，**不受影响，守护进程无需改动**。
+- 但同一类「首次拉起失败后就不再重试」的问题确实存在于本插件的宿主封装层 `lib/index.js` 的 `ensureDaemon()`：原来只 spawn 一次，20 秒不健康就抛错。v1.0.3 同步修复：
+  - 改为 **2 轮尝试 × 10 秒**（总上限仍 20 秒），每轮重新 spawn；守护进程自带单实例锁，重复 spawn 不会叠加实例。
+  - 监听子进程 `error` 事件（Python 缺失 / 被策略拦截）；此前该错误被完全吞掉，用户只看到一句裸超时。
+  - 最终失败时给出可执行诊断：Python 解释器、数据目录、`runtime.json` 是否陈旧、端口范围、spawn 错误原因，以及 `DSH_COPYBACK_PYTHON` / `DSH_COPYBACK_PORT` 两个可用覆盖项。
+  - 新增纯函数 `startupDiagnostics()` 与导出常量 `STARTUP_ATTEMPTS`，合同测试覆盖。
+- 兼容性：三个工具、参数、数据格式、端口基线、数据目录均未变化；纯加固，升级无需迁移。
+
 ## 2026-11-14 许可信息更新（v1.0.2）
 
 - LICENSE 版权人由 ELLA 更正为 **飞哥 (FeiGe)**，全文 MIT 条款不变；NOTICE.md / CHANGES.md / README.md / 守护进程文件头 / 插件头注释 / 自营索引 author 字段同步更正。

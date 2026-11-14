@@ -54,7 +54,7 @@ dsh plugin --profile web remove dsh-copyback
 
 ## 运行方式
 
-- 插件按需拉起本地守护进程（包内自带 `scripts/clipboard_daemon.py`），只监听 `127.0.0.1`，端口基线 **18765**（被占自动 18766～18775）。与 WorkBuddy 版剪贴板技能（8765 基线）可同时运行、互不冲突。
+- 插件按需拉起本地守护进程（包内自带 `scripts/clipboard_daemon.py`），只监听 `127.0.0.1`，端口基线 **18765**（被占自动 18766～18775）。守护进程为无界面纯后端：记录、HTTP API 与敏感格式过滤，不含任何 GUI。
 - 首次调用任何工具时自动开启记录；之后沿用你上次的选择（用 `copyback_manage` 的 `start_recording` / `stop_recording` 切换，重启后保持）。
 - 记录上限 200 条，超出自动淘汰最旧的未置顶条目；置顶永久保留。单条正文最长 20000 字符。
 

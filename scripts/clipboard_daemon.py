@@ -532,7 +532,7 @@ _FG_CACHE: dict = {}
 
 
 def foreground_app() -> str | None:
-    """当前前台窗口的进程名，例如 WorkBuddy、chrome。
+    """当前前台窗口的进程名，例如 chrome、explorer、代码编辑器。
 
     剪贴板是全系统共享的，谁写进去不会留名。记录时顺手抓一下前台窗口，
     用户回头问「这条我没复制过，哪来的」才有据可查——是哪个程序在写。

@@ -20,7 +20,7 @@
         "zh": "DeepSeek Harness（DSH）插件：找回并重新粘贴本机复制过的文字。搜索、按日筛选、置顶收藏；仅本机记录，密码等敏感内容自动跳过。需要 Python 3。"
       },
       "icon": "icons/icon.png",
-      "author": "redkiller79; upstream scripts by ELLA (MIT)",
+      "author": "redkiller79; upstream scripts by 飞哥/FeiGe (MIT)",
       "homepage": "https://github.com/redkiller79/dsh-copyback#readme",
       "repository": {
         "url": "https://github.com/redkiller79/dsh-copyback"

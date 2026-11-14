@@ -1,6 +1,6 @@
 # CHANGES
 
-基于上游剪贴板历史守护进程 **clipboard-history** v1.9.0（原创实现，MIT，Copyright (c) 2026 ELLA），于 2026-11-14 起进行以下移植改造：
+基于上游剪贴板历史守护进程 **clipboard-history** v1.9.0（原创实现，MIT，Copyright (c) 2026 飞哥 (FeiGe)），于 2026-11-14 起进行以下移植改造：
 
 ## 保留（未改动）
 
@@ -18,6 +18,11 @@
 - 全局热键（RegisterHotKey / Win+Alt+V）与 `summon` 通道：无界面即无唤出目标。
 - 登录自启（autostart）清理逻辑与 `install-hook` / `uninstall-hook` / `strip` / `open` / `summon` CLI 子命令。
 
+## 2026-11-14 许可信息更新（v1.0.2）
+
+- LICENSE 版权人由 ELLA 更正为 **飞哥 (FeiGe)**，全文 MIT 条款不变；NOTICE.md / CHANGES.md / README.md / 守护进程文件头 / 插件头注释 / 自营索引 author 字段同步更正。
+- README「上架状态」补充 awesome-dsh-plugin 收录申请（PR #15087），移除已失效的第三方索引申请记录；安装命令改用版本 tag 引用。
+
 ## 2026-11-14 二次剥离（v1.0.1，pure-DSH）
 
 - 守护进程剥离全部上游宿主专用死代码（约 540 行）：WorkBuddy 进程探活/主窗定位、看门狗线程、会话钩子安装器、tkinter 探测、工具条拉起、浏览器 app 窗、全局热键监听、autostart 清理及对应 `/api/state` 字段与 CLI 子命令。
@@ -32,4 +37,4 @@
 
 ## 未改动
 
-- LICENSE 原文与原始版权声明（ELLA，MIT）。
+- LICENSE 原文与原始版权声明（飞哥，MIT）。

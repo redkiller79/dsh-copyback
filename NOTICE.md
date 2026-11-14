@@ -2,7 +2,7 @@
 
 ## 本包构成
 
-- **复用部分**：`scripts/clipboard_daemon.py` —— 本地剪贴板历史守护进程（记录、轮询、敏感格式过滤、置顶/删除/清空、端口自动降级），来自开源 WorkBuddy 技能 **clipboard-history（复制找回 · 剪贴板历史）**，MIT 许可证，Copyright (c) 2026 ELLA。原许可证全文保留在包根 `LICENSE`，未删改版权行。
+- **复用部分**：`scripts/clipboard_daemon.py` —— 本地剪贴板历史守护进程（记录、轮询、敏感格式过滤、置顶/删除/清空、端口自动降级），来自开源 WorkBuddy 技能 **clipboard-history（复制找回 · 剪贴板历史）**，MIT 许可证，Copyright (c) 2026 飞哥 (FeiGe)。原许可证全文保留在包根 `LICENSE`，未删改版权行。
 - **新增部分**：`lib/index.js`（DSH 宿主插件封装、`defineTool` 工具注册）、`cordis.patch.yml`、`package.json`、`README.md`、`test/`。由本仓库作者编写，MIT。
 
 ## 改动说明（详见 CHANGES.md）

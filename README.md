@@ -38,10 +38,10 @@ DeepSeek Harness（DSH）插件：把「复制找回 · 剪贴板历史」技能
 ### 方式二：官方 CLI 直接安装
 
 ```sh
-# 从 GitHub 源码安装（纯 JS 无构建步骤，开箱即用；可锁定 commit）
-dsh plugin --profile web add github:redkiller79/dsh-copyback#09f3f427c1dfafddd2eed81ad7bd206e4127ee81
+# 从 GitHub 源码安装（纯 JS 无构建步骤，开箱即用；可锁定版本 tag）
+dsh plugin --profile web add github:redkiller79/dsh-copyback#v1.0.2
 # 或安装 Release 附带的构建 tarball
-dsh plugin --profile web add "https://github.com/redkiller79/dsh-copyback/releases/download/v1.0.0/dsh-copyback-1.0.0.tgz"
+dsh plugin --profile web add "https://github.com/redkiller79/dsh-copyback/releases/download/v1.0.2/dsh-copyback-1.0.2.tgz"
 ```
 
 安装后重启 `dsh web`（或桌面端），插件以 `dsh-copyback` 入口挂载；可用 `dsh --profile web --dump-config` 确认已加载。
@@ -93,10 +93,10 @@ dsh plugin --profile web remove dsh-copyback
 DeepSeek Harness 的「发现」标签页读取的是**自定义插件索引**（官方格式 1 的 JSON，挂在静态主机上）——DSH 不内置任何索引源，也没有中心化审核市场。本插件按此机制直接上架：
 
 1. **自营官方索引（无需 npm）**：https://redkiller79.github.io/dsh-copyback/index.json —— 本仓库 `docs/` 目录经 GitHub Pages 发布，版本来源固定在发布 commit，图标随索引同源托管；
-2. **GitHub 仓库**带 `dsh-plugin` topic，社区插件目录可自动发现；Release v1.0.0 附构建 tarball；
-3. npm 包 `dsh-copyback` 为**可选**渠道（非必须；截至 2026-11-14 未发布）；
-4. 第三方索引收录申请：已向 https://kingcharleslzy-ai.github.io/dsh-purge/index.json 提交 PR（#224），维护者未附理由关闭；不影响上述自营索引渠道。
+2. **awesome-dsh-plugin 收录申请**：已向社区目录 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin 提交 PR（[#15087](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/15087)，`Add redkiller79/dsh-copyback (tools)`）；
+3. **GitHub 仓库**带 `dsh-plugin` topic，社区插件目录可自动发现；Release v1.0.2 附构建 tarball；
+4. npm 包 `dsh-copyback` 为**可选**渠道（非必须；截至 2026-11-14 未发布）。
 
 ## 来源与许可
 
-守护进程脚本来自开源 WorkBuddy 技能 `clipboard-history`（复制找回 · 剪贴板历史，MIT，Copyright (c) 2026 ELLA），本包新增 DSH 宿主插件封装层。详见 [NOTICE.md](./NOTICE.md) 与 [CHANGES.md](./CHANGES.md)、[LICENSE](./LICENSE)。
+守护进程脚本来自开源 WorkBuddy 技能 `clipboard-history`（复制找回 · 剪贴板历史，MIT，Copyright (c) 2026 飞哥 (FeiGe)），本包新增 DSH 宿主插件封装层。详见 [NOTICE.md](./NOTICE.md) 与 [CHANGES.md](./CHANGES.md)、[LICENSE](./LICENSE)。

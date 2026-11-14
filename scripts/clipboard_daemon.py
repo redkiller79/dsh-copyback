@@ -11,7 +11,7 @@
 6. 记录状态持久化到 settings.json：只有用户显式开过一次，重启后才会恢复记录；
    从未开启过则始终保持暂停（默认不采集这条红线不变）。
 
-上游与移植说明见包根 NOTICE.md / CHANGES.md（MIT，Copyright (c) 2026 ELLA）。
+上游与移植说明见包根 NOTICE.md / CHANGES.md（MIT，Copyright (c) 2026 飞哥 (FeiGe)）。
 """
 
 from __future__ import annotations

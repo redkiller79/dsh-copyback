@@ -36,10 +36,10 @@ test('bundled daemon, provenance and docs are present', async () => {
   }
   const license = await readFile(path.join(ROOT, 'LICENSE'), 'utf8')
   assert.match(license, /MIT License/)
-  assert.match(license, /Copyright \(c\) 2026 ELLA/)
+  assert.match(license, /Copyright \(c\) 2026 飞哥 \(FeiGe\)/)
   const notice = await readFile(path.join(ROOT, 'NOTICE.md'), 'utf8')
   assert.match(notice, /clipboard-history/)
-  assert.match(notice, /ELLA/)
+  assert.match(notice, /飞哥 \(FeiGe\)/)
   // 上游为原创实现：包内不得出现第三方剪贴板软件的品牌残留
   for (const f of ['README.md', 'NOTICE.md', 'CHANGES.md', 'lib/index.js']) {
     const text = await readFile(path.join(ROOT, f), 'utf8')

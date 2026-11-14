@@ -32,7 +32,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/redkiller79/dsh-copyback",
-            "commit": "ef3630d133e7774a5b6183e82445d71db9d87d2b"
+            "commit": "ad58b24e99553770ad3f14fec2a658383bdad4a6"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.1 <0.3.0"
